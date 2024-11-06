@@ -16,7 +16,7 @@ cffi==1.15.0
 chardet==3.0.4
 click==8.1.2
 coverage==5.3
-cryptography==2.5
+cryptography==43.0.3
 deepdiff==6.2.3
 Dickens==2.0.0
 Django==3.2.12
