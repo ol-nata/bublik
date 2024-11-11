@@ -1,9 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2024 OKTET Labs Ltd. All rights reserved.
 
-from itertools import groupby
-import logging
-
 from django.forms.models import model_to_dict
 from rest_framework import status
 from rest_framework.decorators import action
@@ -13,11 +10,10 @@ from rest_framework.viewsets import GenericViewSet
 
 from bublik.core.report.components import ReportPoint, ReportTestLevel
 from bublik.core.report.services import (
-    args_type_convesion,
     filter_by_axis_y,
     filter_by_not_show_args,
     get_common_args,
-    get_unprocessed_iter_info,
+    type_conversion,
 )
 from bublik.data.models import (
     Config,
@@ -26,9 +22,6 @@ from bublik.data.models import (
 )
 from bublik.data.models.result import ResultType
 from bublik.data.serializers import ConfigSerializer, TestIterationResultSerializer
-
-
-logger = logging.getLogger('')
 
 
 __all__ = [
@@ -108,7 +101,7 @@ class ReportViewSet(RetrieveModelMixin, GenericViewSet):
         result = self.get_object()
         main_pkg = result.root
 
-        ### Get record points and build axis names ###
+        ### Get report points and unprocessed iterations ###
 
         mmrs_run = MeasurementResult.objects.filter(
             result__test_run=main_pkg,
@@ -153,51 +146,43 @@ class ReportViewSet(RetrieveModelMixin, GenericViewSet):
 
         mmrs_report = mmrs_report.order_by('id')
 
-        # get points with data
+        # get points with data and unprocessed iterations
         points = []
         unprocessed_iters = []
         for mmr in mmrs_report:
-            point = ReportPoint(mmr, common_args, report_config)
-            if not point.point or (
-                point.sequence_group_arg and not point.sequence_group_arg_val
-            ):
-                unprocessed_iters.append(get_unprocessed_iter_info(point, common_args))
-                continue
-            points.append(point)
+            try:
+                points.append(ReportPoint(mmr, common_args, report_config))
+            except ValueError as ve:
+                test_name = mmr.result.iteration.test.name
+                common_test_args = common_args[test_name]
+                invalid_iteration = {
+                    'test_name': test_name,
+                    'common_args': common_test_args,
+                    'args_vals': {
+                        arg.name: type_conversion(arg.value)
+                        for arg in mmr.result.iteration.test_arguments.all()
+                        if arg.name not in common_test_args
+                    },
+                    'reasons': ve.args[0],
+                }
+                unprocessed_iters.append(invalid_iteration)
 
-        ### Group points into records ###
-
-        def by_test_name_sort(point_groups):
-            sorted_point_groups = {}
-            for test_name in report_config['test_names_order']:
-                try:
-                    sorted_point_groups[test_name] = point_groups[test_name]
-                except KeyError:
-                    continue
-            return sorted_point_groups
-
-        # group points into tests, and divide them into records and sequences
-        test_records = []
-        points = sorted(points, key=ReportPoint.points_grouper_tests)
-        point_groups_by_test_name = dict(
-            [test_name, list(points_group)]
-            for test_name, points_group in groupby(points, ReportPoint.points_grouper_tests)
-        )
-
+        ### Get the report content by grouping the points according to the report levels ###
+        content = []
+        point_groups_by_test_name = ReportPoint.grouper(points, 'test_name')
         if report_config['test_names_order']:
-            point_groups_by_test_name = by_test_name_sort(point_groups_by_test_name)
-
-        # convert values of numeric arguments to int
-        point_groups_by_test_name = args_type_convesion(point_groups_by_test_name)
-
-        for test_name, test_points in point_groups_by_test_name.items():
-            test = ReportTestLevel(test_name, common_args, list(test_points), report_config)
-            test_records.append(test.__dict__)
+            point_groups_by_test_name = ReportPoint.by_test_name_sort(
+                point_groups_by_test_name,
+                report_config['test_names_order'],
+            )
+        for test_name, points in point_groups_by_test_name.items():
+            test_report_content = ReportTestLevel(test_name, common_args, points, report_config)
+            content.append(test_report_content.__dict__)
 
         report = {
             'warnings': warnings,
             'config': config_data,
-            'content': test_records,
+            'content': content,
             'unprocessed_iters': unprocessed_iters,
         }
 
