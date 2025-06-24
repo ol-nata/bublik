@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2016-2023 OKTET Labs Ltd. All rights reserved.
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import ClassVar
 
@@ -115,7 +117,14 @@ class MetaTestSerializer(ModelSerializer):
 
     class Meta:
         model = MetaTest
-        fields = ('id', 'updated', 'meta', 'test', 'project', 'serial')
+        fields: ClassVar[tuple[str, ...]] = (
+            'id',
+            'updated',
+            'meta',
+            'test',
+            'project',
+            'serial',
+        )
 
     def update_data(self):
         '''
