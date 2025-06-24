@@ -43,21 +43,17 @@ class TestCommentViewSet(DestroyModelMixin, GenericViewSet):
         Request: POST tests/<test_id>/comments/?project=<project_id>.
         '''
         test_id = self.kwargs.get('test_id')
-        comment_value = request.data.get('comment')
         project_id = request.query_params.get('project')
+        comment_value = json.dumps(request.data.get('comment'))
         serializer = self.get_serializer(
             data={
-                'test': test_id,
-                'meta': {'type': 'comment', 'value': json.dumps(comment_value)},
-                'project': project_id,
+                'comment': comment_value,
             },
+            context={'test': test_id, 'project': project_id},
         )
-        serializer.update_data()
         serializer.is_valid(raise_exception=True)
-        test_comment, created = serializer.get_or_create(serializer.validated_data)
+        test_comment, _ = serializer.get_or_create(serializer.validated_data)
         test_comment_data = self.get_serializer(test_comment).data
-        if not created:
-            return Response(test_comment_data, status=status.HTTP_302_FOUND)
         return Response(test_comment_data, status=status.HTTP_201_CREATED)
 
     @check_action_permission('manage_test_comments')
@@ -69,25 +65,13 @@ class TestCommentViewSet(DestroyModelMixin, GenericViewSet):
         and a new or existing Meta object with the new comment value.
         Request: PATCH tests/<test_id>/comments/<meta_id>/?project=<project_id>.
         '''
-        # get new MetaTest object data
         metatest = self.get_object()
-        upd_comment_value = request.data.get('comment')
-        upd_test_comment_data = self.get_serializer(metatest).data
-        upd_test_comment_data['meta']['value'] = json.dumps(upd_comment_value)
-
-        # validate new MetaTest object data
-        serializer = self.get_serializer(data=upd_test_comment_data)
-        serializer.update_data()
+        upd_comment_value = json.dumps(request.data.get('comment'))
+        serializer = self.get_serializer(metatest, data={'comment': upd_comment_value})
         serializer.is_valid(raise_exception=True)
-
-        # create a new MetaTest object and delete the old one
-        test_comment, created = serializer.get_or_create(serializer.validated_data)
-        metatest.delete()
-
-        test_comment_data = self.get_serializer(test_comment).data
-        if not created:
-            return Response(test_comment_data, status=status.HTTP_302_FOUND)
-        return Response(test_comment_data, status=status.HTTP_201_CREATED)
+        updated_instance = serializer.save()
+        test_comment_data = self.get_serializer(updated_instance).data
+        return Response(test_comment_data, status=status.HTTP_200_OK)
 
     @check_action_permission('manage_test_comments')
     def destroy(self, request, *args, **kwargs):

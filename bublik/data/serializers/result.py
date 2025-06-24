@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework import serializers
 from rest_framework.serializers import ModelSerializer
 
@@ -13,6 +14,7 @@ from bublik.core.meta.categorization import categorize_meta
 from bublik.core.shortcuts import serialize
 from bublik.core.utils import empty_to_none
 from bublik.data.models import (
+    Meta,
     MetaResult,
     MetaTest,
     Test,
@@ -111,53 +113,107 @@ class MetaResultSerializer(ModelSerializer):
 
 
 class MetaTestSerializer(ModelSerializer):
-    meta = MetaSerializer(required=True)
+    comment = serializers.CharField(
+        help_text=(
+            'This is the comment field representing the value of the meta object, '
+            'corresponding to the comment'
+        ),
+        source='meta.value',
+    )
 
     class Meta:
         model = MetaTest
-        fields: ClassVar[tuple[str, ...]] = (
-            'id',
-            'meta',
-            'test',
-            'project',
-            'serial',
+        fields: ClassVar[tuple[str, ...]] = ('id', 'comment', 'test', 'project', 'serial')
+        read_only_fields: ClassVar[tuple[str, ...]] = ('test', 'project', 'serial')
+
+    def to_internal_value(self, data):
+        data = super().to_internal_value(data)
+        data['meta']['type'] = 'comment'
+        return data
+
+    def validate_comment(self, comment):
+        test = getattr(self.instance, 'test', None) or self.context.get('test')
+        project = getattr(self.instance, 'project', None) or self.context.get('project')
+
+        same_comments = self.Meta.model.objects.filter(
+            test=test,
+            project=project,
+            meta__value=comment,
         )
+        if self.instance:
+            same_comments = same_comments.exclude(id=self.instance.id)
 
-    def update_data(self):
-        '''
-        Update the initial data with the serial number.
-        '''
-        if 'serial' not in self.initial_data:
-            latest_serial = (
-                MetaTest.objects.filter(
-                    test=self.initial_data['test'],
-                    project=self.initial_data['project'],
-                )
-                .order_by('serial')
-                .values_list('serial', flat=True)
-                .last()
-            )
-            self.initial_data['serial'] = latest_serial + 1 if latest_serial is not None else 0
-
-    def validate_meta(self, meta):
-        if not meta['value']:
-            msg = 'Empty comments are not supported'
+        if same_comments.exists():
+            msg = 'A comment with the same content already exists for this test and project'
             raise serializers.ValidationError(msg)
-        return meta
+
+        return comment
+
+    def validate(self, attrs):
+        '''
+        Update the attributes with the serial number, test, and project.
+        '''
+        if self.instance:
+            return attrs
+
+        # assign the serial number
+        latest_serial = (
+            MetaTest.objects.filter(
+                test=self.context['test'],
+                project=self.context['project'],
+            )
+            .order_by('serial')
+            .values_list('serial', flat=True)
+            .last()
+        )
+        attrs['serial'] = latest_serial + 1 if latest_serial is not None else 0
+
+        # validate and assign the project
+        project_id = self.context.get('project')
+        try:
+            attrs['project'] = Meta.projects.get(id=project_id)
+        except ObjectDoesNotExist as ode:
+            msg = 'Project with the given ID does not exist'
+            raise serializers.ValidationError(msg) from ode
+
+        # validate and assign the test
+        test_id = self.context.get('test')
+        try:
+            attrs['test'] = Test.objects.get(id=test_id)
+        except ObjectDoesNotExist as ode:
+            msg = 'Test with the given ID does not exist'
+            raise serializers.ValidationError(msg) from ode
+
+        return attrs
 
     def get_or_create(self, validated_data):
-        meta_data = self.validated_data.pop('meta')
-        meta_serializer = serialize(MetaSerializer, meta_data)
+        meta_serializer = serialize(MetaSerializer, validated_data.pop('meta'))
         meta, created = meta_serializer.get_or_create()
         if created:
             categorize_meta(meta)
 
-        project = self.validated_data.pop('project')
+        serial = validated_data.pop('serial')
 
-        serial = self.validated_data.pop('serial')
         return MetaTest.objects.get_or_create(
-            **self.validated_data,
+            **validated_data,
             meta=meta,
-            project=project,
             defaults={'serial': serial},
         )
+
+    def update(self, instance, validated_data):
+        meta_serializer = serialize(MetaSerializer, validated_data.pop('meta'))
+        meta, created = meta_serializer.get_or_create()
+        if created:
+            categorize_meta(meta)
+
+        updated_comment, created = MetaTest.objects.get_or_create(
+            meta=meta,
+            test=instance.test,
+            project=instance.project,
+            defaults={'serial': instance.serial},
+        )
+
+        if created:
+            instance.delete()
+
+        return updated_comment
