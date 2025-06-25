@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import ClassVar
 
 from rest_framework import serializers
@@ -11,7 +10,6 @@ from rest_framework.serializers import ModelSerializer
 
 from bublik.core.hash_system import HashedModelSerializer
 from bublik.core.meta.categorization import categorize_meta
-from bublik.core.run.utils import prepare_date
 from bublik.core.shortcuts import serialize
 from bublik.core.utils import empty_to_none
 from bublik.data.models import (
@@ -119,7 +117,6 @@ class MetaTestSerializer(ModelSerializer):
         model = MetaTest
         fields: ClassVar[tuple[str, ...]] = (
             'id',
-            'updated',
             'meta',
             'test',
             'project',
@@ -128,9 +125,8 @@ class MetaTestSerializer(ModelSerializer):
 
     def update_data(self):
         '''
-        Update initial data with updated time and serial number.
+        Update the initial data with the serial number.
         '''
-        self.initial_data['updated'] = prepare_date(datetime.now())
         if 'serial' not in self.initial_data:
             latest_serial = (
                 MetaTest.objects.filter(
@@ -158,11 +154,10 @@ class MetaTestSerializer(ModelSerializer):
 
         project = self.validated_data.pop('project')
 
-        updated = self.validated_data.pop('updated')
         serial = self.validated_data.pop('serial')
         return MetaTest.objects.get_or_create(
             **self.validated_data,
             meta=meta,
             project=project,
-            defaults={'updated': updated, 'serial': serial},
+            defaults={'serial': serial},
         )

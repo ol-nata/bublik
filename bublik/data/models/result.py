@@ -559,7 +559,10 @@ class MetaTest(models.Model):
     The table connects a test with metadata.
     '''
 
-    updated = models.DateTimeField(help_text='Timestamp of the connection creation.')
+    updated = models.DateTimeField(
+        help_text='Timestamp of the connection creation.',
+        auto_now=True,
+    )
     meta = models.ForeignKey(
         Meta,
         on_delete=models.CASCADE,
