@@ -113,6 +113,7 @@ class ResultService:
         results: str | None = None,
         result_properties: str | None = None,
         requirements: str | None = None,
+        issue: str | None = None,
     ):
         """
         List results with filtering.
@@ -126,6 +127,7 @@ class ResultService:
             results: Comma-separated result statuses
             result_properties: Comma-separated result properties
             requirements: Comma-separated requirement names
+            issue: Comma-separated issue IDs
 
         Returns:
             QuerySet of filtered TestIterationResult objects
@@ -215,6 +217,13 @@ class ResultService:
             for req_meta in available_req_metas:
                 queryset = queryset.filter(meta_results__meta=req_meta)
 
+        # issue filtering
+        if issue:
+            issue_ids = issue.split(query_delimiter)
+            if not all(i.isdigit() for i in issue_ids):
+                raise ValidationError([f'Invalid issue ID(s): {issue}'])
+            queryset = queryset.filter(rule_results__issue_rule__issue_id__in=issue_ids)
+
         return (
             queryset.order_by('-start', 'id')
             .select_related('iteration', 'project')
@@ -236,6 +245,7 @@ class ResultService:
         results: str | None = None,
         result_properties: str | None = None,
         requirements: str | None = None,
+        issue: str | None = None,
         page: int | None = None,
         page_size: int | None = None,
     ) -> dict:
@@ -251,6 +261,7 @@ class ResultService:
             results: Comma-separated result statuses
             result_properties: Comma-separated result properties
             requirements: Comma-separated requirement names
+            issue: Comma-separated issue IDs
             page: Page number (default: 1)
             page_size: Items per page (default: 25, max: 10000)
 
@@ -264,6 +275,7 @@ class ResultService:
             results=results,
             result_properties=result_properties,
             requirements=requirements,
+            issue=issue,
         )
 
         results_details = generate_results_details(queryset)
