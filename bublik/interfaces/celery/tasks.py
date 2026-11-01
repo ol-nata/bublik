@@ -17,6 +17,7 @@ from celery.signals import (
     task_success,
 )
 from django.core.management import call_command
+from django.utils import timezone
 import pendulum
 
 from bublik import settings
@@ -91,7 +92,7 @@ def task_started_handler(sender=None, task_id=None, **kwargs):
         status=TaskExecution.StatusChoices.REVOKED,
     ).update(
         status=TaskExecution.StatusChoices.RUNNING,
-        started_at=datetime.now(),
+        started_at=timezone.now(),
     )
 
 
@@ -166,7 +167,7 @@ def add_revoked_import_task_event(sender=None, request=None, terminated=None, **
     task_id = request.id
     TaskExecution.objects.filter(task_id=task_id).update(
         status=TaskExecution.StatusChoices.REVOKED,
-        finished_at=datetime.now(),
+        finished_at=timezone.now(),
     )
 
     args = request.args
@@ -199,7 +200,7 @@ def add_revoked_import_task_event(sender=None, request=None, terminated=None, **
 
 @task_postrun.connect()
 def task_finished_handler(sender=None, task_id=None, **kwargs):
-    TaskExecution.objects.filter(task_id=task_id).update(finished_at=datetime.now())
+    TaskExecution.objects.filter(task_id=task_id).update(finished_at=timezone.now())
 
 
 @app.task(bind=True, name='import', acks_late=True, reject_on_worker_lost=True)
